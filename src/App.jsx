@@ -848,6 +848,208 @@ function KartModal({ kart, onClose, onSave }) {
   );
 }
 
+/* ─── DASHBOARD ─────────────────────────────────────── */
+function Dashboard({ karts, activity, onReset, resetConfirm, setResetConfirm }) {
+  const allLogs = karts.flatMap(k => k.maintenanceLogs);
+  const closedLogs = allLogs.filter(l => l.status === "closed");
+  const openLogs   = allLogs.filter(l => l.status === "open");
+
+  // Total baixas this month
+  const now = new Date();
+  const thisMonth = allLogs.filter(l => {
+    const d = new Date(l.entryDate + "T12:00:00");
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+
+  // Avg days stopped (closed logs)
+  const avgDays = closedLogs.length > 0
+    ? (closedLogs.reduce((acc, l) => {
+        const diff = Math.max(0, Math.floor((new Date(l.exitDate + "T12:00:00") - new Date(l.entryDate + "T12:00:00")) / 86400000));
+        return acc + diff;
+      }, 0) / closedLogs.length).toFixed(1)
+    : "—";
+
+  // Kart with most maintenances
+  const kartRanking = karts.map(k => ({
+    number: k.number,
+    total: k.maintenanceLogs.length,
+  })).sort((a, b) => b.total - a.total);
+  const topKart = kartRanking[0];
+
+  // Parts frequency
+  const partCount = {};
+  allLogs.forEach(l => l.parts.forEach(p => { partCount[p] = (partCount[p] || 0) + 1; }));
+  const topParts = Object.entries(partCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Status counts
+  const statusCounts = {
+    active:      karts.filter(k => k.status === "active").length,
+    on_track:    karts.filter(k => k.status === "on_track").length,
+    maintenance: karts.filter(k => k.status === "maintenance").length,
+  };
+  const maxStatus = Math.max(...Object.values(statusCounts), 1);
+
+  // Last 7 days activity
+  const days7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    const label = d.toLocaleDateString("pt-BR", { weekday: "short", day: "numeric" });
+    const dateStr = d.toISOString().split("T")[0];
+    const count = allLogs.filter(l => l.entryDate === dateStr).length;
+    return { label, count };
+  });
+  const maxDay = Math.max(...days7.map(d => d.count), 1);
+
+  const card = (children, extra = {}) => ({
+    background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12,
+    padding: "18px 20px", boxShadow: "0 1px 3px rgba(0,0,0,.04)", ...extra,
+  });
+
+  return (
+    <div style={{ padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
+
+      {/* ── KPI ROW ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        {[
+          { label: "Baixas este mês",       value: thisMonth.length,    icon: "📅", color: "#2563eb", bg: "#eff6ff", bdr: "#bfdbfe" },
+          { label: "Em manutenção agora",   value: openLogs.length,     icon: "🔧", color: "#dc2626", bg: "#fff1f2", bdr: "#fecdd3" },
+          { label: "Kart mais problemático",value: topKart?.total > 0 ? `#${topKart.number}` : "—", icon: "🏎", color: "#ea580c", bg: "#fff7ed", bdr: "#fed7aa" },
+          { label: "Média dias parado",     value: avgDays,             icon: "⏱", color: "#16a34a", bg: "#f0fdf4", bdr: "#bbf7d0" },
+        ].map(k => (
+          <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.bdr}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{k.label}</p>
+                <p style={{ fontSize: 36, fontWeight: 800, color: k.color, lineHeight: 1, fontFamily: "var(--fm)" }}>{k.value}</p>
+              </div>
+              <span style={{ fontSize: 26 }}>{k.icon}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── ROW 2: Status pie + Bar chart ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
+
+        {/* Status da frota */}
+        <div style={card()}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 16 }}>Status da Frota</h3>
+          {[
+            { label: "Disponíveis", count: statusCounts.active,      color: "#16a34a", bg: "#dcfce7" },
+            { label: "Na Pista",    count: statusCounts.on_track,     color: "#ea580c", bg: "#ffedd5" },
+            { label: "Manutenção",  count: statusCounts.maintenance,  color: "#dc2626", bg: "#ffe4e6" },
+          ].map(s => (
+            <div key={s.label} style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontSize: 13, color: "#475569", fontWeight: 500 }}>{s.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: s.color, fontFamily: "var(--fm)" }}>{s.count}</span>
+              </div>
+              <div style={{ height: 8, background: "#f1f5f9", borderRadius: 4 }}>
+                <div style={{ height: 8, background: s.color, borderRadius: 4, width: `${(s.count / 32) * 100}%`, transition: "width .4s" }} />
+              </div>
+            </div>
+          ))}
+          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 10, marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>Total frota</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", fontFamily: "var(--fm)" }}>32 karts</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Baixas por dia (últimos 7 dias) */}
+        <div style={card()}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 16 }}>Baixas — Últimos 7 Dias</h3>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100 }}>
+            {days7.map((d, i) => (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: d.count > 0 ? "#dc2626" : "#94a3b8", fontFamily: "var(--fm)" }}>
+                  {d.count || ""}
+                </span>
+                <div style={{
+                  width: "100%", borderRadius: "4px 4px 0 0",
+                  background: d.count > 0 ? "#dc2626" : "#e2e8f0",
+                  height: `${Math.max((d.count / maxDay) * 70, d.count > 0 ? 8 : 4)}px`,
+                  transition: "height .3s",
+                  opacity: d.count > 0 ? 1 : 0.5,
+                }} />
+                <span style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", lineHeight: 1.2 }}>{d.label}</span>
+              </div>
+            ))}
+          </div>
+          {days7.every(d => d.count === 0) && (
+            <p style={{ textAlign: "center", fontSize: 13, color: "#94a3b8", marginTop: 8 }}>Sem baixas nos últimos 7 dias</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── ROW 3: Ranking karts + Peças mais usadas ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+
+        {/* Ranking karts por manutenções */}
+        <div style={card()}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 14 }}>Karts com Mais Manutenções</h3>
+          {kartRanking.filter(k => k.total > 0).slice(0, 8).length === 0 ? (
+            <p style={{ fontSize: 13, color: "#94a3b8" }}>Nenhuma manutenção registrada.</p>
+          ) : (
+            kartRanking.filter(k => k.total > 0).slice(0, 8).map((k, i) => (
+              <div key={k.number} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid #f8fafc" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", width: 18, textAlign: "center" }}>{i + 1}</span>
+                <span style={{ fontFamily: "var(--fm)", fontSize: 16, fontWeight: 800, color: "#dc2626", width: 36 }}>#{k.number}</span>
+                <div style={{ flex: 1, height: 6, background: "#f1f5f9", borderRadius: 3 }}>
+                  <div style={{ height: 6, background: i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : "#94a3b8", borderRadius: 3, width: `${(k.total / kartRanking[0].total) * 100}%` }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", width: 28, textAlign: "right", fontFamily: "var(--fm)" }}>{k.total}x</span>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Peças mais usadas */}
+        <div style={card()}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 14 }}>Peças Mais Utilizadas</h3>
+          {topParts.length === 0 ? (
+            <p style={{ fontSize: 13, color: "#94a3b8" }}>Nenhuma peça registrada.</p>
+          ) : (
+            topParts.map(([part, count], i) => (
+              <div key={part} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid #f8fafc" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", width: 18, textAlign: "center" }}>{i + 1}</span>
+                <span style={{ fontSize: 12, color: "#0f172a", flex: 1 }}>{part}</span>
+                <div style={{ width: 80, height: 6, background: "#f1f5f9", borderRadius: 3 }}>
+                  <div style={{ height: 6, background: "#2563eb", borderRadius: 3, width: `${(count / topParts[0][1]) * 100}%` }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", width: 28, textAlign: "right", fontFamily: "var(--fm)" }}>{count}x</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* ── RESET ── */}
+      <div style={{ background: "#fff", border: "1px solid #fecdd3", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>🗑 Limpar Feed de Atividade</h3>
+            <p style={{ fontSize: 13, color: "#64748b" }}>Remove todas as entradas do feed de atividade. O histórico de manutenção dos karts não é afetado.</p>
+          </div>
+          {!resetConfirm ? (
+            <button className="btn btn-ghost btn-sm" onClick={() => setResetConfirm(true)}
+              style={{ borderColor: "#fca5a5", color: "#dc2626", whiteSpace: "nowrap" }}>
+              Limpar feed
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#dc2626", fontWeight: 600 }}>Tem certeza?</span>
+              <button className="btn btn-red btn-sm" onClick={onReset}>Sim, limpar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setResetConfirm(false)}>Cancelar</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 /* ─── MAIN APP ──────────────────────────────────────── */
 export default function App() {
   // No login — app opens directly. Device gets a stable anonymous ID.
@@ -865,6 +1067,8 @@ export default function App() {
   const [activity, setActivity]       = useState([]);
   const [toasts, setToasts]           = useState([]);
   const [lastSyncTs, setLastSyncTs]   = useState(null);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [resetConfirm, setResetConfirm]   = useState(false);
 
   const kartsRef   = useRef(karts);
   const channelRef = useRef(null);
@@ -996,6 +1200,14 @@ export default function App() {
     };
   }, []); // eslint-disable-line
 
+  /* ── Reset activity feed ── */
+  const resetActivity = useCallback(async () => {
+    setActivity([]);
+    await storageSet(SK.activity, []);
+    setResetConfirm(false);
+    addToast("Feed de atividade limpo!", "info");
+  }, [addToast]);
+
   /* ── Update kart (called by modal) ── */
   const updateKart = useCallback(async (updated, action, detail, who) => {
     const next = kartsRef.current.map(k => k.id === updated.id ? updated : k);
@@ -1055,6 +1267,21 @@ export default function App() {
           <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", letterSpacing: "-.02em" }}>
             🔧 Oficina Indoor
           </span>
+          {/* Nav tabs */}
+          <div style={{ display: "flex", gap: 2, background: "#f1f5f9", borderRadius: 8, padding: 3 }}>
+            {[
+              { id: false, label: "🏁 Frota" },
+              { id: true,  label: "📊 Dashboard" },
+            ].map(tab => (
+              <button key={String(tab.id)} onClick={() => setShowDashboard(tab.id)} style={{
+                padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600, transition: "all .15s",
+                background: showDashboard === tab.id ? "#fff" : "transparent",
+                color: showDashboard === tab.id ? "#0f172a" : "#64748b",
+                boxShadow: showDashboard === tab.id ? "0 1px 3px rgba(0,0,0,.1)" : "none",
+              }}>{tab.label}</button>
+            ))}
+          </div>
           <span style={{ fontSize: 13, color: "#94a3b8", borderLeft: "1px solid #e2e8f0", paddingLeft: 16 }}>
             {todayStr}
           </span>
@@ -1091,6 +1318,15 @@ export default function App() {
         </div>
       </div>
 
+      {showDashboard ? (
+        <Dashboard
+          karts={karts}
+          activity={activity}
+          onReset={resetActivity}
+          resetConfirm={resetConfirm}
+          setResetConfirm={setResetConfirm}
+        />
+      ) : (
       <div style={{ padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
 
         {/* ══ STAT CARDS ══ */}
@@ -1347,6 +1583,8 @@ export default function App() {
         )}
 
       </div>
+
+      )}
 
       {/* ── MODAL ── */}
       {selected && (
