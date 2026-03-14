@@ -47,16 +47,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-```
-
----
-
-## Passo 3 — Ativar o GitHub Pages
-
-1. Repositório → **Settings** → **Pages**
-2. Em **Source** → selecione **GitHub Actions**
-3. Pronto!
-
-Ao criar o último arquivo, o deploy já dispara automaticamente. Acompanhe em **Actions** no repositório. Em ~2 minutos o app estará em:
-```
-https://SEU_USUARIO.github.io/oficina-karts/
