@@ -119,31 +119,12 @@ const TOTAL_KARTS = 32;
 
 // Status: "active" | "on_track" | "maintenance"
 const buildInitialKarts = () =>
-  Array.from({ length: TOTAL_KARTS }, (_, i) => {
-    const n = String(i + 1).padStart(2, "0");
-    // pre-seed a few states for demo
-    const demos = {
-      "03": "maintenance", "08": "maintenance", "15": "on_track",
-      "21": "on_track", "27": "maintenance",
-    };
-    return {
-      id: i + 1,
-      number: n,
-      status: demos[n] || "active",
-      maintenanceLogs: demos[n] === "maintenance" ? [{
-        id: Date.now() + i,
-        entryDate: "2025-03-06",
-        exitDate: "",
-        reason: n === "03" ? "Motor falhando em alta rotação" : n === "08" ? "Freio traseiro sem pressão" : "Problema na direção",
-        cause: n === "03" ? "Vela de ignição queimada" : n === "08" ? "Disco de freio gasto" : "Terminal solto",
-        parts: n === "03" ? ["Vela de ignição", "Filtro de ar"] : n === "08" ? ["Disco de freio traseiro", "Pastilha de freio traseiro"] : ["Terminal de direção"],
-        mechanic: n === "03" ? "Carlos Silva" : "Diego Ferreira",
-        mechanicRepair: "",
-        repairNotes: "",
-        status: "open",
-      }] : [],
-    };
-  });
+  Array.from({ length: TOTAL_KARTS }, (_, i) => ({
+    id: i + 1,
+    number: String(i + 1).padStart(2, "0"),
+    status: "active",
+    maintenanceLogs: [],
+  }));
 
 /* ─── HELPERS ───────────────────────────────────────── */
 const today = () => new Date().toISOString().split("T")[0];
@@ -153,9 +134,9 @@ const nowISO = () => new Date().toISOString();
 
 /* ─── SYNC / STORAGE KEYS ──────────────────────────── */
 const SK = {
-  karts:    "oficina-karts-v1",
-  activity: "oficina-activity-v1",
-  presence: "oficina-presence-v1",
+  karts:    "oficina-karts-v2",   // v2 = produção limpa
+  activity: "oficina-activity-v2",
+  presence: "oficina-presence-v2",
 };
 
 const POLL_MS   = 4000;   // sync poll interval
