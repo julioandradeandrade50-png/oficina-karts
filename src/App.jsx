@@ -266,19 +266,50 @@ const PARTS_BY_CAT = [
 ];
 
 function PartsPicker({ selected, onChange, accentColor = "#d97706" }) {
-  const [search, setSearch] = useState("");
-  const [custom, setCustom] = useState("");
+  // Internal draft — changes only propagate when user clicks "Confirmar"
+  const [draft, setDraft]     = useState(() => selected.map(s => typeof s === "object" ? { ...s } : { name: s, qty: 1 }));
+  const [search, setSearch]   = useState("");
+  const [custom, setCustom]   = useState("");
+  const [confirmed, setConfirmed] = useState(false);
 
-  const toggle = (p) => {
-    if (selected.includes(p)) onChange(selected.filter(x => x !== p));
-    else onChange([...selected, p]);
+  // Sync draft when selected resets externally (e.g. form reset)
+  const prevSelected = useRef(selected);
+  useEffect(() => {
+    if (selected.length === 0 && prevSelected.current.length > 0) {
+      setDraft([]);
+      setConfirmed(false);
+    }
+    prevSelected.current = selected;
+  }, [selected]);
+
+  const draftNames = draft.map(s => s.name);
+
+  const toggle = (name) => {
+    setConfirmed(false);
+    if (draftNames.includes(name)) {
+      setDraft(draft.filter(s => s.name !== name));
+    } else {
+      setDraft([...draft, { name, qty: 1 }]);
+    }
+  };
+
+  const setQty = (name, val) => {
+    const n = Math.max(1, parseInt(val) || 1);
+    setDraft(draft.map(s => s.name === name ? { ...s, qty: n } : s));
+    setConfirmed(false);
   };
 
   const addCustom = () => {
     const t = custom.trim();
-    if (!t || selected.includes(t)) return;
-    onChange([...selected, t]);
+    if (!t || draftNames.includes(t)) return;
+    setDraft([...draft, { name: t, qty: 1 }]);
     setCustom("");
+    setConfirmed(false);
+  };
+
+  const handleConfirm = () => {
+    onChange(draft);
+    setConfirmed(true);
   };
 
   const allParts = PARTS_BY_CAT.flatMap(c => c.parts);
@@ -287,60 +318,47 @@ function PartsPicker({ selected, onChange, accentColor = "#d97706" }) {
     ? [{ cat: "Resultados", color: accentColor, parts: allParts.filter(p => p.toLowerCase().includes(searchLower)) }]
     : PARTS_BY_CAT;
 
+  const hasPending = JSON.stringify(draft) !== JSON.stringify(selected.map(s => typeof s === "object" ? s : { name: s, qty: 1 }));
+
   return (
     <div>
-      {/* Search bar */}
+      {/* Search */}
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <div style={{ position: "relative", flex: 1 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#94a3b8", pointerEvents: "none" }}>🔍</span>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Filtrar peças..."
-            style={{ paddingLeft: 30 }}
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filtrar peças..." style={{ paddingLeft: 30 }} />
         </div>
-        {search && (
-          <button className="btn btn-ghost btn-xs" onClick={() => setSearch("")} style={{ whiteSpace: "nowrap" }}>✕ Limpar</button>
-        )}
+        {search && <button className="btn btn-ghost btn-xs" onClick={() => setSearch("")} style={{ whiteSpace: "nowrap" }}>✕ Limpar</button>}
       </div>
 
-      {/* Scrollable catalog */}
-      <div style={{
-        border: "1px solid #cbd5e1", borderRadius: 7,
-        background: "#f8fafc",
-        maxHeight: 220, overflowY: "auto",
-        padding: "10px 12px",
-      }}>
+      {/* Catalog */}
+      <div style={{ border: "1px solid #cbd5e1", borderRadius: 7, background: "#f8fafc", maxHeight: 220, overflowY: "auto", padding: "10px 12px" }}>
         {filteredCats.map(({ cat, color, parts }) => (
           parts.length === 0 ? null :
           <div key={cat} style={{ marginBottom: 12 }}>
-            <div style={{
-              fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: ".1em", color, marginBottom: 6,
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: color }} />
               {cat}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {parts.map(p => {
-                const isSelected = selected.includes(p);
+                const isSel = draftNames.includes(p);
+                const draftItem = draft.find(s => s.name === p);
                 return (
                   <button key={p} onClick={() => toggle(p)} style={{
-                    padding: "4px 11px",
-                    borderRadius: 4,
-                    border: `1.5px solid ${isSelected ? color : "#cbd5e1"}`,
-                    background: isSelected ? `${color}22` : "#f1f5f9",
-                    color: isSelected ? color : "#475569",
-                    fontSize: 11, fontWeight: isSelected ? 700 : 400,
+                    padding: "4px 11px", borderRadius: 4,
+                    border: `1.5px solid ${isSel ? color : "#cbd5e1"}`,
+                    background: isSel ? `${color}22` : "#f1f5f9",
+                    color: isSel ? color : "#475569",
+                    fontSize: 11, fontWeight: isSel ? 700 : 400,
                     cursor: "pointer", transition: "all .12s",
-                    display: "flex", alignItems: "center", gap: 5,
-                    fontFamily: "var(--fb)",
-                    boxShadow: isSelected ? `0 0 8px ${color}44` : "none",
+                    display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--fb)",
                   }}>
-                    {isSelected && <span style={{ fontSize: 10 }}>✓</span>}
+                    {isSel && <span style={{ fontSize: 10 }}>✓</span>}
                     {p}
+                    {isSel && draftItem?.qty > 1 && (
+                      <span style={{ fontSize: 10, fontWeight: 800, fontFamily: "var(--fm)" }}>×{draftItem.qty}</span>
+                    )}
                   </button>
                 );
               })}
@@ -348,46 +366,89 @@ function PartsPicker({ selected, onChange, accentColor = "#d97706" }) {
           </div>
         ))}
         {filteredCats.every(c => c.parts.length === 0) && (
-          <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "16px 0" }}>
-            Nenhuma peça encontrada.
-          </div>
+          <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "16px 0" }}>Nenhuma peça encontrada.</div>
         )}
       </div>
 
-      {/* Selected summary */}
-      {selected.length > 0 && (
-        <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(26,255,110,.06)", border: "1px solid #86efac", borderRadius: 6 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#16a34a", marginBottom: 6 }}>
-            ✓ {selected.length} peça{selected.length > 1 ? "s" : ""} selecionada{selected.length > 1 ? "s" : ""}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {selected.map((p, i) => (
-              <span key={i} onClick={() => toggle(p)} style={{
-                padding: "3px 10px", borderRadius: 4,
-                background: "#f0fdf4", border: "1px solid #86efac",
-                fontSize: 11, color: "#16a34a", cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 5,
-              }}>
-                {p}
-                <span style={{ fontSize: 10, opacity: .7 }}>×</span>
+      {/* Draft list with qty controls */}
+      {draft.length > 0 && (
+        <div style={{ marginTop: 10, padding: "12px", background: "#f8fafc", border: `1px solid ${hasPending ? "#fde68a" : "#e2e8f0"}`, borderRadius: 8, transition: "border-color .2s" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+              {draft.length} peça{draft.length > 1 ? "s" : ""} — ajuste as quantidades:
+            </span>
+            {hasPending && (
+              <span style={{ fontSize: 10, color: "#92400e", background: "#fef9c3", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>
+                não confirmado
               </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {draft.map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 7 }}>
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#0f172a", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                  <button onClick={() => setQty(s.name, s.qty - 1)} style={{
+                    width: 26, height: 26, borderRadius: 5, border: "1px solid #e2e8f0",
+                    background: "#f1f5f9", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626",
+                  }}>−</button>
+                  <input type="number" min={1} value={s.qty}
+                    onChange={e => setQty(s.name, e.target.value)}
+                    style={{ width: 52, textAlign: "center", fontSize: 13, padding: "4px 6px", fontFamily: "var(--fm)", fontWeight: 700 }}
+                  />
+                  <button onClick={() => setQty(s.name, s.qty + 1)} style={{
+                    width: 26, height: 26, borderRadius: 5, border: "1px solid #e2e8f0",
+                    background: "#f1f5f9", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a",
+                  }}>+</button>
+                </div>
+                <button onClick={() => toggle(s.name)} style={{
+                  width: 24, height: 24, borderRadius: 4, border: "1px solid #fca5a5",
+                  background: "#fff1f2", fontSize: 12, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626", flexShrink: 0,
+                }}>×</button>
+              </div>
             ))}
           </div>
+
+          {/* Total + Confirm button */}
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, padding: "6px 12px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#15803d" }}>Total</span>
+              <span style={{ fontFamily: "var(--fm)", fontSize: 14, fontWeight: 800, color: "#16a34a" }}>
+                {draft.reduce((a, s) => a + s.qty, 0)} un.
+              </span>
+            </div>
+            <button
+              onClick={handleConfirm}
+              style={{
+                padding: "7px 18px", borderRadius: 7, border: "none", cursor: "pointer",
+                fontWeight: 700, fontSize: 13, fontFamily: "var(--fb)",
+                background: confirmed ? "#16a34a" : hasPending ? "#2563eb" : "#16a34a",
+                color: "#fff", transition: "all .2s", whiteSpace: "nowrap",
+                boxShadow: confirmed ? "none" : hasPending ? "0 2px 8px rgba(37,99,235,.35)" : "none",
+              }}
+            >
+              {confirmed ? "✓ Confirmado" : "Confirmar peças"}
+            </button>
+          </div>
+
+          {confirmed && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#15803d", display: "flex", alignItems: "center", gap: 5 }}>
+              <span>✓</span>
+              <span>{draft.length} peça{draft.length > 1 ? "s" : ""} confirmada{draft.length > 1 ? "s" : ""} · {draft.reduce((a, s) => a + s.qty, 0)} unidades no total</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Custom part input */}
+      {/* Custom part */}
       <div style={{ marginTop: 8, display: "flex", gap: 7 }}>
-        <input
-          value={custom}
-          onChange={e => setCustom(e.target.value)}
-          placeholder="Adicionar peça personalizada..."
-          onKeyDown={e => e.key === "Enter" && addCustom()}
-          style={{ flex: 1 }}
-        />
-        <button className="btn btn-ghost btn-sm" onClick={addCustom} style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-          + Adicionar
-        </button>
+        <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Adicionar peça personalizada..."
+          onKeyDown={e => e.key === "Enter" && addCustom()} style={{ flex: 1 }} />
+        <button className="btn btn-ghost btn-sm" onClick={addCustom} style={{ whiteSpace: "nowrap", fontSize: 12 }}>+ Adicionar</button>
       </div>
     </div>
   );
@@ -635,9 +696,16 @@ function KartModal({ kart, onClose, onSave }) {
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 10, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>Peças Indicadas</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                      {openLog.parts.map((p, i) => (
-                        <span key={i} style={{ padding: "2px 9px", background: "rgba(255,32,32,.12)", border: "1px solid #fca5a5", borderRadius: 3, fontSize: 11, color: "#0f172a" }}>{p}</span>
-                      ))}
+                      {openLog.parts.map((p, i) => {
+                        const name = typeof p === "object" ? p.name : p;
+                        const qty  = typeof p === "object" ? p.qty  : 1;
+                        return (
+                          <span key={i} style={{ padding: "2px 9px", background: "rgba(255,32,32,.12)", border: "1px solid #fca5a5", borderRadius: 3, fontSize: 11, color: "#0f172a", display: "flex", alignItems: "center", gap: 5 }}>
+                            {name}
+                            {qty > 1 && <span style={{ fontFamily: "var(--fm)", fontWeight: 800, color: "#dc2626" }}>×{qty}</span>}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -798,9 +866,16 @@ function KartModal({ kart, onClose, onSave }) {
                       <div style={{ marginBottom: 6 }}>
                         <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Peças</div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {log.parts.map((p, j) => (
-                            <span key={j} style={{ padding: "1px 7px", background: "#e2e8f0", border: "1px solid #cbd5e1", borderRadius: 3, fontSize: 10, color: "#475569" }}>{p}</span>
-                          ))}
+                          {log.parts.map((p, j) => {
+                            const name = typeof p === "object" ? p.name : p;
+                            const qty  = typeof p === "object" ? p.qty  : 1;
+                            return (
+                              <span key={j} style={{ padding: "1px 7px", background: "#e2e8f0", border: "1px solid #cbd5e1", borderRadius: 3, fontSize: 10, color: "#475569", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                {name}
+                                {qty > 1 && <span style={{ fontFamily: "var(--fm)", fontWeight: 700, color: "#475569" }}>×{qty}</span>}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1046,7 +1121,11 @@ function Dashboard({ karts, activity, stock = [], onReset, resetConfirm, setRese
 
   // Parts frequency
   const partCount = {};
-  allLogs.forEach(l => l.parts.forEach(p => { partCount[p] = (partCount[p] || 0) + 1; }));
+  allLogs.forEach(l => l.parts.forEach(p => {
+    const name = typeof p === "object" ? p.name : p;
+    const qty  = typeof p === "object" ? p.qty  : 1;
+    partCount[name] = (partCount[name] || 0) + qty;
+  }));
   const topParts = Object.entries(partCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
   // Status counts
@@ -1317,6 +1396,19 @@ export default function App() {
     try { channelRef.current?.postMessage({ type: "stock-update", stock: updated }); } catch {}
   }, []);
 
+  /* ── Deduct parts from stock when conserto is registered ── */
+  const deductStock = useCallback(async (parts) => {
+    if (!parts || parts.length === 0) return;
+    const current = await storageGet(SK.stock) || stock;
+    const updated = current.map(s => {
+      const used = parts.find(p => (typeof p === "object" ? p.name : p) === s.name);
+      if (!used) return s;
+      const qty = typeof used === "object" ? used.qty : 1;
+      return { ...s, qty: Math.max(0, s.qty - qty) };
+    });
+    await persistStock(updated);
+  }, [persistStock, stock]);
+
   /* ── Heartbeat (write own presence) ── */
   const sendHeartbeat = useCallback(async () => {
     const pres = await storageGet(SK.presence) || {};
@@ -1395,11 +1487,14 @@ export default function App() {
     setKarts(next);
     if (updated.status === "active" && action === "Conserto Concluído") {
       setSelected(null);
+      // Auto-deduct used parts from stock
+      const closedLog = updated.maintenanceLogs.find(l => l.status === "closed" && l.parts?.length > 0);
+      if (closedLog) await deductStock(closedLog.parts);
     } else {
       setSelected(updated);
     }
     await persistKarts(next, action, updated.number, detail, who);
-  }, [persistKarts]);
+  }, [persistKarts, deductStock]);
 
   /* ── derived ── */
   const stats = {
@@ -1424,385 +1519,330 @@ export default function App() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f1f5f9" }}>
+    <div style={{ minHeight: "100vh", background: "#f1f5f9", display: "flex" }}>
 
-      {/* ── TOASTS ── */}
-      <div style={{ position: "fixed", top: 68, right: 16, zIndex: 2000, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+      {/* ══ TOASTS ══ */}
+      <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 2000, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
         {toasts.map(t => (
           <div key={t.id} className="fade-up" style={{
-            padding: "10px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: "#ffffff", border: `1.5px solid ${t.type === "remote" ? "#bfdbfe" : t.type === "presence" ? "#bbf7d0" : "#fde68a"}`,
+            padding: "10px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+            background: "#fff",
+            border: `1.5px solid ${t.type === "remote" ? "#bfdbfe" : t.type === "presence" ? "#bbf7d0" : "#fde68a"}`,
             color: t.type === "remote" ? "#1d4ed8" : t.type === "presence" ? "#15803d" : "#92400e",
-            maxWidth: 320, boxShadow: "0 4px 12px rgba(0,0,0,.12)",
+            maxWidth: 320, boxShadow: "0 4px 16px rgba(0,0,0,.12)",
           }}>{t.msg}</div>
         ))}
       </div>
 
-      {/* ══ TOPBAR ══ */}
+      {/* ══ SIDEBAR ══ */}
       <div style={{
-        background: "#fff", borderBottom: "1px solid #e2e8f0",
-        height: 56, padding: "0 24px",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,.06)",
+        width: 64, background: "#1e293b", display: "flex", flexDirection: "column",
+        alignItems: "center", padding: "16px 0", gap: 4,
+        position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 200,
+        borderRight: "1px solid #334155",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", letterSpacing: "-.02em" }}>
-            🔧 Oficina Indoor
-          </span>
-          {/* Nav tabs */}
-          <div style={{ display: "flex", gap: 2, background: "#f1f5f9", borderRadius: 8, padding: 3 }}>
-            {[
-              { id: "frota",     label: "🏁 Frota" },
-              { id: "estoque",   label: `📦 Estoque${lowStock.length > 0 ? ` ⚠${lowStock.length}` : ""}` },
-              { id: "dashboard", label: "📊 Dashboard" },
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                fontSize: 13, fontWeight: 600, transition: "all .15s",
-                background: activeTab === tab.id ? "#fff" : "transparent",
-                color: activeTab === tab.id ? "#0f172a" : tab.id === "estoque" && lowStock.length > 0 ? "#dc2626" : "#64748b",
-                boxShadow: activeTab === tab.id ? "0 1px 3px rgba(0,0,0,.1)" : "none",
-              }}>{tab.label}</button>
-            ))}
-          </div>
-          <span style={{ fontSize: 13, color: "#94a3b8", borderLeft: "1px solid #e2e8f0", paddingLeft: 16 }}>
-            {todayStr}
-          </span>
-          {/* Sync pill */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 5,
-            padding: "3px 10px", borderRadius: 20,
-            background: syncStatus === "online" ? "#f0fdf4" : syncStatus === "offline" ? "#fff1f2" : "#fff7ed",
-            border: `1px solid ${syncStatus === "online" ? "#bbf7d0" : syncStatus === "offline" ? "#fecdd3" : "#fed7aa"}`,
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: syncDot,
-              animation: syncStatus === "connecting" ? "blink 1s infinite" : "none" }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: syncDot }}>
-              {syncStatus === "online" ? "Sincronizado" : syncStatus === "offline" ? "Offline" : "Conectando"}
-            </span>
-            {lastSyncTs && syncStatus === "online" && (
-              <span style={{ fontSize: 10, color: "#94a3b8" }}>
-                {lastSyncTs.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-              </span>
+        {/* Logo */}
+        <div style={{ fontSize: 22, marginBottom: 12, lineHeight: 1 }}>🔧</div>
+
+        {/* Nav items */}
+        {[
+          { id: "frota",     icon: "⊞", label: "Frota" },
+          { id: "estoque",   icon: "☰", label: "Estoque", alert: lowStock.length > 0 },
+          { id: "dashboard", icon: "◫", label: "Dashboard" },
+        ].map(item => (
+          <div key={item.id} title={item.label} onClick={() => setActiveTab(item.id)}
+            style={{ position: "relative", cursor: "pointer" }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 10,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20, transition: "all .15s",
+              background: activeTab === item.id ? "rgba(99,179,237,.15)" : "transparent",
+              color: activeTab === item.id ? "#63b3ed" : "#94a3b8",
+              border: activeTab === item.id ? "1px solid rgba(99,179,237,.3)" : "1px solid transparent",
+            }}>{item.icon}</div>
+            {item.alert && (
+              <div style={{
+                position: "absolute", top: 6, right: 6, width: 8, height: 8,
+                borderRadius: "50%", background: "#f97316",
+                border: "1.5px solid #1e293b",
+              }} />
             )}
           </div>
-        </div>
+        ))}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Online devices count */}
-          {onlineUsers.length > 1 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a" }} />
-              <span style={{ fontSize: 12, color: "#64748b" }}>{onlineUsers.length} dispositivos conectados</span>
-            </div>
-          )}
-          <span style={{ color: "#e2e8f0" }}>|</span>
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Sync dot */}
+        <div title={syncStatus} style={{
+          width: 10, height: 10, borderRadius: "50%",
+          background: syncDot,
+          animation: syncStatus === "connecting" ? "blink 1s infinite" : "none",
+          marginBottom: 8,
+        }} />
+
+        {/* Clock */}
+        <div style={{ fontSize: 9, fontFamily: "var(--fm)", color: "#475569", textAlign: "center", lineHeight: 1.6, marginBottom: 8 }}>
           <Clock />
         </div>
       </div>
 
-      {activeTab === "dashboard" ? (
-        <Dashboard
-          karts={karts}
-          activity={activity}
-          stock={stock}
-          onReset={resetActivity}
-          resetConfirm={resetConfirm}
-          setResetConfirm={setResetConfirm}
-        />
-      ) : activeTab === "estoque" ? (
-        <Estoque stock={stock} onUpdate={persistStock} lowStock={lowStock} />
-      ) : (
-      <div style={{ padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
+      {/* ══ MAIN AREA ══ */}
+      <div style={{ marginLeft: 64, flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
 
-        {/* ══ STAT CARDS ══ */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
-          {[
-            { label: "Disponíveis",  count: stats.active,      color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0", icon: "✅" },
-            { label: "Na Pista",     count: stats.onTrack,     color: "#ea580c", bg: "#fff7ed", border: "#fed7aa", icon: "🏁" },
-            { label: "Manutenção",   count: stats.maintenance, color: "#dc2626", bg: "#fff1f2", border: "#fecdd3", icon: "🔧" },
-          ].map(s => (
-            <div key={s.label} style={{
-              background: s.bg, border: `1px solid ${s.border}`,
-              borderRadius: 12, padding: "20px 24px",
-              boxShadow: "0 1px 3px rgba(0,0,0,.06)",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{s.label}</p>
-                  <p style={{ fontSize: 48, fontWeight: 800, color: s.color, lineHeight: 1, fontFamily: "var(--fm)" }}>{s.count}</p>
-                </div>
-                <span style={{ fontSize: 32 }}>{s.icon}</span>
-              </div>
-              <div style={{ marginTop: 12, height: 4, background: "rgba(0,0,0,.06)", borderRadius: 2 }}>
-                <div style={{ height: 4, background: s.color, borderRadius: 2, width: `${(s.count / 32) * 100}%`, transition: "width .3s" }} />
-              </div>
-              <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{s.count} de 32 karts</p>
-            </div>
-          ))}
-        </div>
-
-        {/* ══ LOW STOCK ALERT ══ */}
-        {lowStock.length > 0 && (
-          <div style={{
-            background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12,
-            padding: "12px 18px", marginBottom: 20,
-            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-          }}>
-            <span style={{ fontSize: 18 }}>⚠️</span>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#c2410c" }}>
-                Estoque baixo em {lowStock.length} {lowStock.length === 1 ? "peça" : "peças"}:
-              </span>
-              <span style={{ fontSize: 13, color: "#ea580c", marginLeft: 8 }}>
-                {lowStock.slice(0, 4).map(s => `${s.name} (${s.qty})`).join(" · ")}
-                {lowStock.length > 4 ? ` · +${lowStock.length - 4} mais` : ""}
-              </span>
-            </div>
-            <button className="btn btn-ghost btn-xs" onClick={() => setActiveTab("estoque")}
-              style={{ borderColor: "#fdba74", color: "#ea580c", whiteSpace: "nowrap" }}>
-              Ver estoque →
-            </button>
-          </div>
-        )}
-
-        {/* ══ FILTER + SEARCH BAR ══ */}
+        {/* ── Topbar ── */}
         <div style={{
-          background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12,
-          padding: "14px 18px", marginBottom: 20,
-          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          height: 52, background: "#fff", borderBottom: "1px solid #e2e8f0",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 24px", position: "sticky", top: 0, zIndex: 100,
           boxShadow: "0 1px 3px rgba(0,0,0,.04)",
         }}>
-          <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }}>
-            {FILTERS.map(f => (
-              <button key={f.v} onClick={() => setFilterStatus(f.v)} style={{
-                padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer",
-                fontWeight: 600, fontSize: 13, transition: "all .15s",
-                background: filterStatus === f.v ? f.color : "#f1f5f9",
-                color: filterStatus === f.v ? "#fff" : "#475569",
-                boxShadow: filterStatus === f.v ? `0 2px 8px ${f.color}44` : "none",
-              }}>
-                {f.label} <span style={{ opacity: .7, fontSize: 11 }}>({f.count})</span>
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ position: "relative" }}>
-              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 14 }}>🔍</span>
-              <input
-                value={searchKart}
-                onChange={e => setSearchKart(e.target.value)}
-                placeholder="Buscar kart..."
-                style={{ paddingLeft: 32, width: 160, fontSize: 13 }}
-              />
-            </div>
-            {searchKart && <button className="btn btn-ghost btn-xs" onClick={() => setSearchKart("")}>✕</button>}
-            <button className="btn btn-ghost btn-sm" onClick={() => syncFromStorage(false)} title="Forçar sincronização">
-              ↺ Sync
-            </button>
-          </div>
-        </div>
-
-        {/* ══ KART GRID ══ */}
-        <div style={{
-          background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12,
-          padding: 18, marginBottom: 24,
-          boxShadow: "0 1px 3px rgba(0,0,0,.04)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
-              Grade de Karts
-              <span style={{ fontSize: 12, fontWeight: 400, color: "#94a3b8", marginLeft: 8 }}>
-                {displayKarts.length} exibindo
-              </span>
-            </h2>
-            <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#64748b" }}>
-              {[["#16a34a","Disponível"],["#ea580c","Na Pista"],["#dc2626","Manutenção"]].map(([c,l]) => (
-                <span key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 2, background: c, display: "inline-block" }} />
-                  {l}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {displayKarts.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(115px, 1fr))", gap: 10 }}>
-              {displayKarts.map(kart => (
-                <KartCard key={kart.id} kart={kart} onClick={() => setSelected(kart)} />
-              ))}
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: "40px 20px", color: "#94a3b8" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-              <p style={{ fontSize: 15, fontWeight: 600, color: "#64748b" }}>Nenhum kart encontrado</p>
-              <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }}
-                onClick={() => { setFilterStatus("all"); setSearchKart(""); }}>
-                Limpar filtros
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ══ MAINTENANCE TABLE ══ */}
-        {maintKarts.length > 0 && (
-          <div style={{
-            background: "#fff", border: "1px solid #fecdd3", borderRadius: 12,
-            overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.04)", marginBottom: 24,
-          }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <h1 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+              {activeTab === "frota" ? "Frota de Karts" : activeTab === "estoque" ? "Controle de Estoque" : "Dashboard"}
+            </h1>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>
+              {activeTab === "frota" ? `${karts.length} karts` : activeTab === "estoque" ? `${stock.length} peças` : "Visão geral"}
+            </span>
+            {/* Sync label */}
             <div style={{
-              padding: "14px 18px", borderBottom: "1px solid #fecdd3",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "#fff1f2",
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+              background: syncStatus === "online" ? "#f0fdf4" : syncStatus === "offline" ? "#fff1f2" : "#fff7ed",
+              border: `1px solid ${syncStatus === "online" ? "#bbf7d0" : syncStatus === "offline" ? "#fecdd3" : "#fed7aa"}`,
+              color: syncDot,
             }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#dc2626" }}>
-                🔧 Karts em Manutenção
-                <span style={{ fontSize: 12, fontWeight: 500, color: "#f87171", marginLeft: 8 }}>
-                  {maintKarts.length} kart{maintKarts.length > 1 ? "s" : ""}
-                </span>
-              </h2>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: syncDot, animation: syncStatus === "connecting" ? "blink 1s infinite" : "none" }} />
+              {syncStatus === "online" ? "Sincronizado" : syncStatus === "offline" ? "Offline" : "Conectando"}
             </div>
-
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#fafafa" }}>
-                  {["Kart","Problema","Causa","Entrada","Dias","Mecânico","Peças","Ação"].map(h => (
-                    <th key={h} style={{
-                      padding: "10px 14px", textAlign: "left",
-                      fontSize: 11, fontWeight: 700, color: "#64748b",
-                      textTransform: "uppercase", letterSpacing: ".05em",
-                      borderBottom: "1px solid #e2e8f0",
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {maintKarts.map((k, i) => {
-                  const log  = k.maintenanceLogs.find(l => l.status === "open");
-                  const days = log ? Math.max(0, Math.floor((new Date() - new Date(log.entryDate + "T12:00:00")) / 86400000)) : 0;
-                  const urgent = days > 3;
-                  return (
-                    <tr key={k.id} style={{
-                      borderBottom: "1px solid #f1f5f9",
-                      background: urgent ? "#fff8f8" : "#fff",
-                      transition: "background .12s", cursor: "pointer",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = urgent ? "#ffe4e6" : "#f8fafc"}
-                    onMouseLeave={e => e.currentTarget.style.background = urgent ? "#fff8f8" : "#fff"}
-                    onClick={() => setSelected(k)}>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{
-                          fontFamily: "var(--fm)", fontSize: 20, fontWeight: 700,
-                          color: "#dc2626",
-                        }}>{k.number}</span>
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
-                          {log?.reason || "—"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>
-                          {log?.cause || "—"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{ fontFamily: "var(--fm)", fontSize: 12, color: "#475569" }}>
-                          {fmtDate(log?.entryDate)}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{
-                          padding: "3px 10px", borderRadius: 20,
-                          background: urgent ? "#fecdd3" : "#fee2e2",
-                          color: urgent ? "#b91c1c" : "#dc2626",
-                          fontWeight: 700, fontSize: 12, fontFamily: "var(--fm)",
-                        }}>
-                          {days}d {urgent ? "⚠" : ""}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>
-                          {log?.mechanic?.split(" ")[0] || "—"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px 14px", maxWidth: 200 }}>
-                        {log?.parts?.length > 0 ? (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                            {log.parts.slice(0, 2).map((p, pi) => (
-                              <span key={pi} style={{
-                                padding: "1px 7px", fontSize: 10, borderRadius: 4,
-                                background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0",
-                              }}>{p}</span>
-                            ))}
-                            {log.parts.length > 2 && (
-                              <span style={{ fontSize: 10, color: "#94a3b8" }}>+{log.parts.length - 2}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span style={{ fontSize: 12, color: "#94a3b8" }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ padding: "12px 14px" }}>
-                        <button className="btn btn-xs btn-red" onClick={e => { e.stopPropagation(); setSelected(k); }}>
-                          Abrir
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
-        )}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {onlineUsers.length > 1 && (
+              <span style={{ fontSize: 12, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
+                {onlineUsers.length} online
+              </span>
+            )}
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{todayStr}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => syncFromStorage(false)} title="Sincronizar agora" style={{ padding: "4px 10px", fontSize: 12 }}>↺</button>
+          </div>
+        </div>
 
-        {/* ══ ACTIVITY FEED ══ */}
-        {activity.length > 0 && (
-          <div style={{
-            background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12,
-            overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.04)",
-          }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between" }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>📋 Atividade Recente</h2>
-              <span style={{ fontSize: 12, color: "#94a3b8" }}>Atualiza a cada 4s</span>
-            </div>
-            <div style={{ padding: "8px 0" }}>
-              {activity.slice(0, 8).map((a, i) => {
-                const isRed = a.action?.includes("Manutenção") || a.action?.includes("Baixa");
-                const isGreen = a.action?.includes("Conserto") || a.action?.includes("Ativo");
-                const acColor = isRed ? "#dc2626" : isGreen ? "#16a34a" : "#ea580c";
-                return (
-                  <div key={a.id} style={{
-                    display: "flex", alignItems: "center", gap: 14,
-                    padding: "9px 18px",
-                    borderBottom: i < activity.slice(0,8).length - 1 ? "1px solid #f1f5f9" : "none",
-                  }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: acColor, flexShrink: 0 }} />
-                    <span style={{ fontFamily: "var(--fm)", fontSize: 12, color: "#94a3b8", width: 44, flexShrink: 0 }}>
-                      {new Date(a.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Kart #{a.kartNumber}</span>
-                    <span style={{ fontSize: 13, color: acColor, fontWeight: 600 }}>{a.action}</span>
-                    {a.detail && <span style={{ fontSize: 12, color: "#64748b", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.detail}</span>}
-                    <span style={{ fontSize: 12, color: "#94a3b8", flexShrink: 0 }}>{a.who?.split(" ")[0]}</span>
+        {/* ── Page Content ── */}
+        {activeTab === "dashboard" ? (
+          <Dashboard karts={karts} activity={activity} stock={stock} onReset={resetActivity} resetConfirm={resetConfirm} setResetConfirm={setResetConfirm} />
+        ) : activeTab === "estoque" ? (
+          <Estoque stock={stock} onUpdate={persistStock} lowStock={lowStock} />
+        ) : (
+          /* ── FROTA ── */
+          <div style={{ display: "flex", flex: 1, gap: 0, overflow: "hidden" }}>
+
+            {/* Main column */}
+            <div style={{ flex: 1, padding: "20px 20px 40px", overflowY: "auto" }}>
+
+              {/* Stat cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
+                {[
+                  { label: "Disponíveis", count: stats.active,      color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0" },
+                  { label: "Na Pista",    count: stats.onTrack,     color: "#ea580c", bg: "#fff7ed", border: "#fed7aa" },
+                  { label: "Manutenção",  count: stats.maintenance, color: "#dc2626", bg: "#fff1f2", border: "#fecdd3" },
+                ].map(s => (
+                  <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: "16px 20px" }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{s.label}</p>
+                    <p style={{ fontSize: 44, fontWeight: 800, color: s.color, lineHeight: 1, fontFamily: "var(--fm)" }}>{s.count}</p>
+                    <div style={{ marginTop: 10, height: 4, background: "rgba(0,0,0,.06)", borderRadius: 2 }}>
+                      <div style={{ height: 4, background: s.color, borderRadius: 2, width: `${(s.count / 32) * 100}%`, transition: "width .3s" }} />
+                    </div>
+                    <p style={{ fontSize: 10, color: "#94a3b8", marginTop: 3 }}>{s.count} de 32</p>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+
+              {/* Low stock alert */}
+              {lowStock.length > 0 && (
+                <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span>⚠️</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#c2410c" }}>Estoque baixo:</span>
+                  <span style={{ fontSize: 13, color: "#ea580c", flex: 1 }}>
+                    {lowStock.slice(0, 3).map(s => `${s.name} (${s.qty})`).join(" · ")}
+                    {lowStock.length > 3 ? ` · +${lowStock.length - 3} mais` : ""}
+                  </span>
+                  <button className="btn btn-ghost btn-xs" onClick={() => setActiveTab("estoque")} style={{ borderColor: "#fdba74", color: "#ea580c" }}>Ver →</button>
+                </div>
+              )}
+
+              {/* Filter bar */}
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 5, flex: 1, flexWrap: "wrap" }}>
+                  {FILTERS.map(f => (
+                    <button key={f.v} onClick={() => setFilterStatus(f.v)} style={{
+                      padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                      fontWeight: 600, fontSize: 12, transition: "all .15s",
+                      background: filterStatus === f.v ? f.color : "#f1f5f9",
+                      color: filterStatus === f.v ? "#fff" : "#475569",
+                    }}>
+                      {f.label} <span style={{ opacity: .7 }}>({f.count})</span>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 13 }}>🔍</span>
+                  <input value={searchKart} onChange={e => setSearchKart(e.target.value)} placeholder="Kart..." style={{ paddingLeft: 28, width: 120, fontSize: 12 }} />
+                </div>
+                {searchKart && <button className="btn btn-ghost btn-xs" onClick={() => setSearchKart("")}>✕</button>}
+              </div>
+
+              {/* Kart grid */}
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                    Grade de Karts
+                    <span style={{ fontSize: 12, fontWeight: 400, color: "#94a3b8", marginLeft: 8 }}>{displayKarts.length} exibindo</span>
+                  </span>
+                  <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#64748b" }}>
+                    {[["#16a34a","Disponível"],["#ea580c","Na Pista"],["#dc2626","Manutenção"]].map(([c,l]) => (
+                      <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: "inline-block" }} />{l}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {displayKarts.length > 0 ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(108px, 1fr))", gap: 9 }}>
+                    {displayKarts.map(kart => (
+                      <KartCard key={kart.id} kart={kart} onClick={() => setSelected(kart)} />
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "32px 20px", color: "#94a3b8" }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#64748b" }}>Nenhum kart encontrado</p>
+                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => { setFilterStatus("all"); setSearchKart(""); }}>Limpar filtros</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Activity feed */}
+              {activity.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden", marginTop: 16 }}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Atividade Recente</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>atualiza a cada 4s</span>
+                  </div>
+                  <div>
+                    {activity.slice(0, 6).map((a, i) => {
+                      const isRed = a.action?.includes("Manutenção") || a.action?.includes("Baixa");
+                      const isGreen = a.action?.includes("Conserto") || a.action?.includes("Ativo");
+                      const acColor = isRed ? "#dc2626" : isGreen ? "#16a34a" : "#ea580c";
+                      return (
+                        <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px", borderBottom: i < 5 ? "1px solid #f8fafc" : "none" }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: acColor, flexShrink: 0 }} />
+                          <span style={{ fontFamily: "var(--fm)", fontSize: 11, color: "#94a3b8", width: 40, flexShrink: 0 }}>
+                            {new Date(a.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>#{a.kartNumber}</span>
+                          <span style={{ fontSize: 12, color: acColor, fontWeight: 600 }}>{a.action}</span>
+                          {a.detail && <span style={{ fontSize: 11, color: "#64748b", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.detail}</span>}
+                          <span style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>{a.who?.split(" ")[0]}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* ── RIGHT PANEL: Manutenção ── */}
+            <div style={{
+              width: 300, flexShrink: 0, borderLeft: "1px solid #e2e8f0", background: "#fff",
+              display: "flex", flexDirection: "column", overflowY: "auto",
+            }}>
+              {/* Header */}
+              <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc2626", animation: maintKarts.length > 0 ? "blink 1.4s infinite" : "none" }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Manutenção</span>
+                  {maintKarts.length > 0 && (
+                    <span style={{ padding: "1px 8px", borderRadius: 20, background: "#fee2e2", color: "#dc2626", fontSize: 11, fontWeight: 700, marginLeft: "auto" }}>
+                      {maintKarts.length}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Karts fora da frota ativa</p>
+              </div>
+
+              {maintKarts.length === 0 ? (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, color: "#94a3b8", textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>Nenhum kart em manutenção</p>
+                  <p style={{ fontSize: 11, marginTop: 4 }}>Toda a frota está disponível</p>
+                </div>
+              ) : (
+                <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {maintKarts.map(k => {
+                    const log  = k.maintenanceLogs.find(l => l.status === "open");
+                    const days = log ? Math.max(0, Math.floor((new Date() - new Date(log.entryDate + "T12:00:00")) / 86400000)) : 0;
+                    const urgent = days > 3;
+                    return (
+                      <div key={k.id} onClick={() => setSelected(k)} style={{
+                        background: urgent ? "#fff1f2" : "#fafafa",
+                        border: `1px solid ${urgent ? "#fca5a5" : "#e2e8f0"}`,
+                        borderLeft: `4px solid ${urgent ? "#dc2626" : "#f87171"}`,
+                        borderRadius: 8, padding: "10px 12px", cursor: "pointer",
+                        transition: "all .12s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = urgent ? "#ffe4e6" : "#f0f4f8"}
+                      onMouseLeave={e => e.currentTarget.style.background = urgent ? "#fff1f2" : "#fafafa"}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontFamily: "var(--fm)", fontSize: 22, fontWeight: 800, color: "#dc2626", lineHeight: 1 }}>{k.number}</span>
+                          <span style={{
+                            padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, fontFamily: "var(--fm)",
+                            background: urgent ? "#fecdd3" : "#fee2e2", color: urgent ? "#b91c1c" : "#dc2626",
+                          }}>{days}d {urgent ? "⚠" : ""}</span>
+                        </div>
+                        {log && (
+                          <>
+                            <p style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", marginBottom: 3, lineHeight: 1.3 }}>{log.reason}</p>
+                            {log.cause && <p style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{log.cause}</p>}
+                            <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#94a3b8" }}>
+                              <span>Entrada: <span style={{ color: "#475569", fontFamily: "var(--fm)" }}>{fmtDate(log.entryDate)}</span></span>
+                              {log.mechanic && <span>Mec: <span style={{ color: "#475569" }}>{log.mechanic.split(" ")[0]}</span></span>}
+                            </div>
+                            {log.parts.length > 0 && (
+                              <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 3 }}>
+                                {log.parts.slice(0, 3).map((p, i) => {
+                                  const nm = typeof p === "object" ? p.name : p;
+                                  const qt = typeof p === "object" ? p.qty  : 1;
+                                  return (
+                                    <span key={i} style={{ padding: "1px 6px", fontSize: 10, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 4, color: "#475569", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                      {nm}{qt > 1 && <span style={{ fontFamily: "var(--fm)", fontWeight: 700 }}>×{qt}</span>}
+                                    </span>
+                                  );
+                                })}
+                                {log.parts.length > 3 && <span style={{ fontSize: 10, color: "#94a3b8" }}>+{log.parts.length - 3}</span>}
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <button className="btn btn-red btn-xs" style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 11 }}
+                          onClick={e => { e.stopPropagation(); setSelected(k); }}>
+                          Registrar conserto
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 
       </div>
 
-      )}
-
       {/* ── MODAL ── */}
       {selected && (
-        <KartModal
-          kart={selected}
-          onClose={() => setSelected(null)}
-          onSave={updateKart}
-        />
+        <KartModal kart={selected} onClose={() => setSelected(null)} onSave={updateKart} />
       )}
     </div>
   );
