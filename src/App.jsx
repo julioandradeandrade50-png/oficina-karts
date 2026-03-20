@@ -160,15 +160,40 @@ const HBEAT_MS  = 12000;  // presence heartbeat
 const DEAD_MS   = 30000;  // consider offline after 30s
 
 /* ─── STORAGE HELPERS ──────────────────────────────── */
+// Usa window.storage (claude.ai) quando disponível,
+// caso contrário usa localStorage (GitHub Pages / produção).
 async function storageGet(key) {
   try {
-    const r = await window.storage.get(key, true);
-    return r ? JSON.parse(r.value) : null;
+    if (typeof window.storage !== "undefined") {
+      const r = await window.storage.get(key, true);
+      return r ? JSON.parse(r.value) : null;
+    }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
+
 async function storageSet(key, val) {
-  try { await window.storage.set(key, JSON.stringify(val), true); return true; }
-  catch { return false; }
+  const json = JSON.stringify(val);
+  try {
+    if (typeof window.storage !== "undefined") {
+      await window.storage.set(key, json, true);
+    }
+  } catch {}
+  try {
+    localStorage.setItem(key, json);
+    return true;
+  } catch { return false; }
+}
+
+// Leitura síncrona do localStorage para inicialização instantânea
+function localGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 /* ─── CLOCK ─────────────────────────────────────────── */
@@ -1303,7 +1328,8 @@ export default function App() {
   const deviceId   = useRef("device-" + Math.random().toString(36).slice(2, 8)).current;
   const deviceName = useRef("Dispositivo " + Math.floor(Math.random() * 900 + 100)).current;
 
-  const [karts, setKarts]             = useState(buildInitialKarts);
+  // Inicialização síncrona do localStorage — dados aparecem instantaneamente ao abrir
+  const [karts, setKarts]             = useState(() => localGet(SK.karts)    || buildInitialKarts());
   const [selected, setSelected]       = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchKart, setSearchKart]   = useState("");
@@ -1311,13 +1337,13 @@ export default function App() {
   // Sync state
   const [syncStatus, setSyncStatus]   = useState("connecting");
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [activity, setActivity]       = useState([]);
+  const [activity, setActivity]       = useState(() => localGet(SK.activity) || []);
   const [toasts, setToasts]           = useState([]);
   const [lastSyncTs, setLastSyncTs]   = useState(null);
   const [showDashboard, setShowDashboard] = useState(false);
   const [resetConfirm, setResetConfirm]   = useState(false);
-  const [activeTab, setActiveTab]         = useState("frota"); // "frota" | "estoque" | "dashboard"
-  const [stock, setStock]                 = useState(buildInitialStock);
+  const [activeTab, setActiveTab]         = useState("frota");
+  const [stock, setStock]                 = useState(() => localGet(SK.stock) || buildInitialStock());
 
   const kartsRef   = useRef(karts);
   const channelRef = useRef(null);
@@ -1336,7 +1362,12 @@ export default function App() {
   /* ── Activity helper ── */
   const pushActivity = useCallback(async (action, kartNumber, detail, who) => {
     const entry = { id: uid(), ts: nowISO(), action, kartNumber, detail, who };
-    setActivity(a => [entry, ...a].slice(0, 50));
+    setActivity(a => {
+      const next = [entry, ...a].slice(0, 50);
+      // Salva imediatamente no localStorage (síncrono)
+      try { localStorage.setItem(SK.activity, JSON.stringify(next)); } catch {}
+      return next;
+    });
     try {
       const existing = await storageGet(SK.activity) || [];
       await storageSet(SK.activity, [entry, ...existing].slice(0, 50));
@@ -1345,6 +1376,8 @@ export default function App() {
 
   /* ── Save karts to shared storage ── */
   const persistKarts = useCallback(async (updated, action, kartNumber, detail, who) => {
+    // Salva no localStorage imediatamente (antes do async)
+    try { localStorage.setItem(SK.karts, JSON.stringify(updated)); } catch {}
     const ok = await storageSet(SK.karts, updated);
     setSyncStatus(ok ? "online" : "offline");
     setLastSyncTs(new Date());
@@ -1363,6 +1396,7 @@ export default function App() {
 
   /* ── Load from storage (initial + poll) ── */
   const syncFromStorage = useCallback(async (silent = false) => {
+    // Karts
     const stored = await storageGet(SK.karts);
     if (stored) {
       if (JSON.stringify(stored) !== JSON.stringify(kartsRef.current)) {
@@ -1372,18 +1406,22 @@ export default function App() {
           const fresh = stored.find(k => k.id === prev.id);
           return fresh || prev;
         });
-        if (!silent) setLastSyncTs(new Date());
       }
       setSyncStatus("online");
       setLastSyncTs(new Date());
     } else {
+      // Nada salvo ainda — persiste o estado atual (já carregado do localStorage)
       await storageSet(SK.karts, kartsRef.current);
       setSyncStatus("online");
     }
+    // Activity
     const acts = await storageGet(SK.activity);
     if (acts) setActivity(acts);
+    // Stock
     const storedStock = await storageGet(SK.stock);
     if (storedStock) setStock(storedStock);
+    else await storageSet(SK.stock, localGet(SK.stock) || buildInitialStock());
+    // Presence
     const pres = await storageGet(SK.presence) || {};
     const now  = Date.now();
     setOnlineUsers(Object.values(pres).filter(u => now - u.ts < DEAD_MS));
@@ -1392,6 +1430,8 @@ export default function App() {
   /* ── Persist stock ── */
   const persistStock = useCallback(async (updated) => {
     setStock(updated);
+    // Salva no localStorage imediatamente
+    try { localStorage.setItem(SK.stock, JSON.stringify(updated)); } catch {}
     await storageSet(SK.stock, updated);
     try { channelRef.current?.postMessage({ type: "stock-update", stock: updated }); } catch {}
   }, []);
