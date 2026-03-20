@@ -1,4 +1,4 @@
-iimport { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ─── FONTS ─────────────────────────────────────────── */
 const fl = document.createElement("link");
