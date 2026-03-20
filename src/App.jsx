@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+iimport { useState, useEffect, useCallback, useRef } from "react";
 
 /* ─── FONTS ─────────────────────────────────────────── */
 const fl = document.createElement("link");
@@ -126,6 +126,21 @@ const buildInitialKarts = () =>
     maintenanceLogs: [],
   }));
 
+/* ─── INITIAL STOCK ─────────────────────────────────── */
+const buildInitialStock = () => {
+  let id = 1;
+  return PARTS_BY_CAT.flatMap(({ cat, color, parts }) =>
+    parts.map(name => ({
+      id: id++,
+      name,
+      cat,
+      color,
+      qty: 0,
+      minQty: 2,
+    }))
+  );
+};
+
 /* ─── HELPERS ───────────────────────────────────────── */
 const today = () => new Date().toISOString().split("T")[0];
 const fmtDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "—";
@@ -134,9 +149,10 @@ const nowISO = () => new Date().toISOString();
 
 /* ─── SYNC / STORAGE KEYS ──────────────────────────── */
 const SK = {
-  karts:    "oficina-karts-v2",   // v2 = produção limpa
+  karts:    "oficina-karts-v2",
   activity: "oficina-activity-v2",
   presence: "oficina-presence-v2",
+  stock:    "oficina-stock-v2",
 };
 
 const POLL_MS   = 4000;   // sync poll interval
@@ -829,8 +845,179 @@ function KartModal({ kart, onClose, onSave }) {
   );
 }
 
+/* ─── ESTOQUE ────────────────────────────────────────── */
+function Estoque({ stock, onUpdate, lowStock }) {
+  const [search, setSearch]         = useState("");
+  const [catFilter, setCatFilter]   = useState("all");
+  const [showOnlyLow, setShowOnlyLow] = useState(false);
+  const [editMinQty, setEditMinQty] = useState(null); // { id, val }
+
+  const cats = ["all", ...PARTS_BY_CAT.map(c => c.cat)];
+
+  const adjust = (id, delta) => {
+    const updated = stock.map(s => s.id === id
+      ? { ...s, qty: Math.max(0, s.qty + delta) }
+      : s
+    );
+    onUpdate(updated);
+  };
+
+  const setMinQty = (id, val) => {
+    const updated = stock.map(s => s.id === id ? { ...s, minQty: Math.max(0, val) } : s);
+    onUpdate(updated);
+    setEditMinQty(null);
+  };
+
+  const setQtyDirect = (id, val) => {
+    const updated = stock.map(s => s.id === id ? { ...s, qty: Math.max(0, val) } : s);
+    onUpdate(updated);
+  };
+
+  let filtered = stock;
+  if (search)          filtered = filtered.filter(s => s.name.toLowerCase().includes(search.toLowerCase()) || s.cat.toLowerCase().includes(search.toLowerCase()));
+  if (catFilter !== "all") filtered = filtered.filter(s => s.cat === catFilter);
+  if (showOnlyLow)     filtered = filtered.filter(s => s.qty <= s.minQty && s.minQty > 0);
+
+  const totalItems = stock.reduce((a, s) => a + s.qty, 0);
+
+  return (
+    <div style={{ padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
+
+      {/* ── KPI ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        {[
+          { label: "Total de peças",    value: stock.length,      color: "#2563eb", bg: "#eff6ff", bdr: "#bfdbfe", icon: "📦" },
+          { label: "Itens em estoque",  value: totalItems,         color: "#16a34a", bg: "#f0fdf4", bdr: "#bbf7d0", icon: "✅" },
+          { label: "Estoque baixo",     value: lowStock.length,    color: "#ea580c", bg: "#fff7ed", bdr: "#fed7aa", icon: "⚠️" },
+          { label: "Sem estoque",       value: stock.filter(s => s.qty === 0 && s.minQty > 0).length, color: "#dc2626", bg: "#fff1f2", bdr: "#fecdd3", icon: "🚫" },
+        ].map(k => (
+          <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.bdr}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{k.label}</p>
+                <p style={{ fontSize: 36, fontWeight: 800, color: k.color, lineHeight: 1, fontFamily: "var(--fm)" }}>{k.value}</p>
+              </div>
+              <span style={{ fontSize: 26 }}>{k.icon}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── FILTERS ── */}
+      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+        <div style={{ position: "relative" }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 14 }}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar peça..." style={{ paddingLeft: 32, width: 200, fontSize: 13 }} />
+        </div>
+
+        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: "auto", fontSize: 13, padding: "8px 12px" }}>
+          {cats.map(c => <option key={c} value={c}>{c === "all" ? "Todas categorias" : c}</option>)}
+        </select>
+
+        <button onClick={() => setShowOnlyLow(!showOnlyLow)} style={{
+          padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${showOnlyLow ? "#ea580c" : "#e2e8f0"}`,
+          background: showOnlyLow ? "#fff7ed" : "#fff", color: showOnlyLow ? "#ea580c" : "#64748b",
+          fontSize: 13, fontWeight: 600, cursor: "pointer",
+        }}>
+          ⚠️ Só estoque baixo {showOnlyLow ? "✓" : ""}
+        </button>
+
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>{filtered.length} itens</span>
+      </div>
+
+      {/* ── TABLE ── */}
+      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#f8fafc" }}>
+              {["Categoria", "Peça", "Qtd. Mínima", "Estoque Atual", "Status", "Ajustar"].map(h => (
+                <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: ".05em", borderBottom: "1px solid #e2e8f0" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>Nenhuma peça encontrada</td></tr>
+            ) : filtered.map((s, i) => {
+              const isLow   = s.qty <= s.minQty && s.minQty > 0;
+              const isEmpty = s.qty === 0 && s.minQty > 0;
+              const statusColor  = isEmpty ? "#dc2626" : isLow ? "#ea580c" : "#16a34a";
+              const statusBg     = isEmpty ? "#fff1f2" : isLow ? "#fff7ed" : "#f0fdf4";
+              const statusLabel  = isEmpty ? "Sem estoque" : isLow ? "Estoque baixo" : "OK";
+              return (
+                <tr key={s.id} style={{ borderBottom: "1px solid #f8fafc", background: isEmpty ? "#fff8f8" : isLow ? "#fffbf5" : "#fff" }}>
+                  {/* Category */}
+                  <td style={{ padding: "10px 16px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: s.color }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, display: "inline-block", flexShrink: 0 }} />
+                      {s.cat}
+                    </span>
+                  </td>
+                  {/* Name */}
+                  <td style={{ padding: "10px 16px" }}>
+                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 500 }}>{s.name}</span>
+                  </td>
+                  {/* Min qty (editable) */}
+                  <td style={{ padding: "10px 16px" }}>
+                    {editMinQty?.id === s.id ? (
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <input type="number" min={0} defaultValue={s.minQty}
+                          style={{ width: 60, fontSize: 12, padding: "4px 8px" }}
+                          onBlur={e => setMinQty(s.id, parseInt(e.target.value) || 0)}
+                          onKeyDown={e => e.key === "Enter" && setMinQty(s.id, parseInt(e.target.value) || 0)}
+                          autoFocus />
+                      </div>
+                    ) : (
+                      <button onClick={() => setEditMinQty({ id: s.id })} style={{
+                        background: "none", border: "1px dashed #cbd5e1", borderRadius: 6,
+                        padding: "3px 10px", fontSize: 12, color: "#64748b", cursor: "pointer",
+                        fontFamily: "var(--fm)", fontWeight: 700,
+                      }}>
+                        {s.minQty}
+                      </button>
+                    )}
+                  </td>
+                  {/* Current qty */}
+                  <td style={{ padding: "10px 16px" }}>
+                    <span style={{ fontFamily: "var(--fm)", fontSize: 20, fontWeight: 800, color: statusColor }}>{s.qty}</span>
+                  </td>
+                  {/* Status */}
+                  <td style={{ padding: "10px 16px" }}>
+                    <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg, color: statusColor }}>
+                      {statusLabel}
+                    </span>
+                  </td>
+                  {/* Adjust buttons */}
+                  <td style={{ padding: "10px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button onClick={() => adjust(s.id, -1)} style={{
+                        width: 28, height: 28, borderRadius: 6, border: "1.5px solid #e2e8f0",
+                        background: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626",
+                      }}>−</button>
+                      <input type="number" min={0} value={s.qty}
+                        onChange={e => setQtyDirect(s.id, parseInt(e.target.value) || 0)}
+                        style={{ width: 56, textAlign: "center", fontSize: 13, padding: "4px 6px", fontFamily: "var(--fm)", fontWeight: 700 }}
+                      />
+                      <button onClick={() => adjust(s.id, 1)} style={{
+                        width: 28, height: 28, borderRadius: 6, border: "1.5px solid #e2e8f0",
+                        background: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a",
+                      }}>+</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ─── DASHBOARD ─────────────────────────────────────── */
-function Dashboard({ karts, activity, onReset, resetConfirm, setResetConfirm }) {
+function Dashboard({ karts, activity, stock = [], onReset, resetConfirm, setResetConfirm }) {
   const allLogs = karts.flatMap(k => k.maintenanceLogs);
   const closedLogs = allLogs.filter(l => l.status === "closed");
   const openLogs   = allLogs.filter(l => l.status === "open");
@@ -1050,6 +1237,8 @@ export default function App() {
   const [lastSyncTs, setLastSyncTs]   = useState(null);
   const [showDashboard, setShowDashboard] = useState(false);
   const [resetConfirm, setResetConfirm]   = useState(false);
+  const [activeTab, setActiveTab]         = useState("frota"); // "frota" | "estoque" | "dashboard"
+  const [stock, setStock]                 = useState(buildInitialStock);
 
   const kartsRef   = useRef(karts);
   const channelRef = useRef(null);
@@ -1099,7 +1288,6 @@ export default function App() {
     if (stored) {
       if (JSON.stringify(stored) !== JSON.stringify(kartsRef.current)) {
         setKarts(stored);
-        // Refresh selected kart if modal is open
         setSelected(prev => {
           if (!prev) return prev;
           const fresh = stored.find(k => k.id === prev.id);
@@ -1115,9 +1303,18 @@ export default function App() {
     }
     const acts = await storageGet(SK.activity);
     if (acts) setActivity(acts);
+    const storedStock = await storageGet(SK.stock);
+    if (storedStock) setStock(storedStock);
     const pres = await storageGet(SK.presence) || {};
     const now  = Date.now();
     setOnlineUsers(Object.values(pres).filter(u => now - u.ts < DEAD_MS));
+  }, []);
+
+  /* ── Persist stock ── */
+  const persistStock = useCallback(async (updated) => {
+    setStock(updated);
+    await storageSet(SK.stock, updated);
+    try { channelRef.current?.postMessage({ type: "stock-update", stock: updated }); } catch {}
   }, []);
 
   /* ── Heartbeat (write own presence) ── */
@@ -1157,6 +1354,9 @@ export default function App() {
             const entry = { id: uid(), ts: nowISO(), action: e.data.action, kartNumber: e.data.kartNumber, detail: e.data.detail, who: e.data.who };
             setActivity(a => [entry, ...a].slice(0, 50));
           }
+        }
+        if (e.data.type === "stock-update") {
+          setStock(e.data.stock);
         }
       };
     } catch {}
@@ -1211,6 +1411,7 @@ export default function App() {
   if (filterStatus !== "all") displayKarts = displayKarts.filter(k => k.status === filterStatus);
   if (searchKart)             displayKarts = displayKarts.filter(k => k.number.includes(searchKart));
   const maintKarts = karts.filter(k => k.status === "maintenance");
+  const lowStock   = stock.filter(s => s.qty <= s.minQty && s.minQty > 0);
 
   const syncDot = syncStatus === "online" ? "#16a34a" : syncStatus === "offline" ? "#dc2626" : "#ea580c";
   const todayStr = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
@@ -1251,15 +1452,16 @@ export default function App() {
           {/* Nav tabs */}
           <div style={{ display: "flex", gap: 2, background: "#f1f5f9", borderRadius: 8, padding: 3 }}>
             {[
-              { id: false, label: "🏁 Frota" },
-              { id: true,  label: "📊 Dashboard" },
+              { id: "frota",     label: "🏁 Frota" },
+              { id: "estoque",   label: `📦 Estoque${lowStock.length > 0 ? ` ⚠${lowStock.length}` : ""}` },
+              { id: "dashboard", label: "📊 Dashboard" },
             ].map(tab => (
-              <button key={String(tab.id)} onClick={() => setShowDashboard(tab.id)} style={{
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                 padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: 600, transition: "all .15s",
-                background: showDashboard === tab.id ? "#fff" : "transparent",
-                color: showDashboard === tab.id ? "#0f172a" : "#64748b",
-                boxShadow: showDashboard === tab.id ? "0 1px 3px rgba(0,0,0,.1)" : "none",
+                background: activeTab === tab.id ? "#fff" : "transparent",
+                color: activeTab === tab.id ? "#0f172a" : tab.id === "estoque" && lowStock.length > 0 ? "#dc2626" : "#64748b",
+                boxShadow: activeTab === tab.id ? "0 1px 3px rgba(0,0,0,.1)" : "none",
               }}>{tab.label}</button>
             ))}
           </div>
@@ -1299,14 +1501,17 @@ export default function App() {
         </div>
       </div>
 
-      {showDashboard ? (
+      {activeTab === "dashboard" ? (
         <Dashboard
           karts={karts}
           activity={activity}
+          stock={stock}
           onReset={resetActivity}
           resetConfirm={resetConfirm}
           setResetConfirm={setResetConfirm}
         />
+      ) : activeTab === "estoque" ? (
+        <Estoque stock={stock} onUpdate={persistStock} lowStock={lowStock} />
       ) : (
       <div style={{ padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
 
@@ -1336,6 +1541,30 @@ export default function App() {
             </div>
           ))}
         </div>
+
+        {/* ══ LOW STOCK ALERT ══ */}
+        {lowStock.length > 0 && (
+          <div style={{
+            background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12,
+            padding: "12px 18px", marginBottom: 20,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: 18 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#c2410c" }}>
+                Estoque baixo em {lowStock.length} {lowStock.length === 1 ? "peça" : "peças"}:
+              </span>
+              <span style={{ fontSize: 13, color: "#ea580c", marginLeft: 8 }}>
+                {lowStock.slice(0, 4).map(s => `${s.name} (${s.qty})`).join(" · ")}
+                {lowStock.length > 4 ? ` · +${lowStock.length - 4} mais` : ""}
+              </span>
+            </div>
+            <button className="btn btn-ghost btn-xs" onClick={() => setActiveTab("estoque")}
+              style={{ borderColor: "#fdba74", color: "#ea580c", whiteSpace: "nowrap" }}>
+              Ver estoque →
+            </button>
+          </div>
+        )}
 
         {/* ══ FILTER + SEARCH BAR ══ */}
         <div style={{
